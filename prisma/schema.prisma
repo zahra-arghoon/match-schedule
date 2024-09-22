@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model Team {
+  id    Int     @id @default(autoincrement())
+  name  String
+  logo  String
+  isAvailable Boolean @default(true)
+
+  group   Group? @relation(fields: [groupId], references: [id])
+  groupId Int?
+
+  team1Matches Match[] @relation("Team1Matches")
+  team2Matches Match[] @relation("Team2Matches")
+  }
+
+model Group {
+  id    Int     @id @default(autoincrement())
+  name  String
+  maxTeam  Int @default(4)
+  minTeam  Int @default(2)
+  teams Team[]
+  matches     Match[]
+
+}
+
+model Timing {
+  id          Int      @id @default(autoincrement())
+  gameTime    Int      
+  halfTime    Int      
+  gapTime     Int     
+  events      Event[] 
+}
+
+model Event {
+  id          Int      @id @default(autoincrement())
+  name        String   @default("event1")
+  startDate   DateTime @default("2023-01-01T08:00:00.000Z")
+  endDate     DateTime @default("2023-01-01T12:00:00.000Z")
+  pitchNumber      Int?     
+  timeId      Int     @default(1)
+  timing      Timing   @relation(fields: [timeId], references: [id])
+  matches       Match[]
+  pitches     Pitch[]
+
+}
+
+model Match {
+  id          Int      @id @default(autoincrement())
+  eventId     Int
+  event       Event   @relation(fields: [eventId], references: [id])
+  
+  team1Id     Int
+  team1       Team     @relation("Team1Matches", fields: [team1Id], references: [id], map: "Match_team1Id_fkey")
+
+  team2Id     Int
+  team2       Team     @relation("Team2Matches", fields: [team2Id], references: [id], map: "Match_team2Id_fkey")
+
+  groupId     Int
+  group       Group    @relation(fields: [groupId], references: [id])
+
+  pitchId     Int
+  pitch       Pitch   @relation("pitchMatches",fields: [pitchId], references: [id])
+
+
+  orderIndex  Int
+  duration    Int
+
+  scheduledTime DateTime
+}
+
+
+model Gap {
+  id          Int      @id @default(autoincrement())
+  pitchId       Int
+  pitch       Pitch   @relation("PitchGaps",fields: [pitchId], references: [id])
+  duration    Int
+  orderIndex        Int
+  scheduledTime DateTime
+}
+model Pitch {
+  id          Int      @id @default(autoincrement())
+  eventId     Int
+  event       Event   @relation(fields: [eventId], references: [id])
+  duration    Int
+  name        String
+  gaps        Gap[]   @relation("PitchGaps")
+  matches        Match[]   @relation("pitchMatches")
+}
+    
+
+ 
+
+
