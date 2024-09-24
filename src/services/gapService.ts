@@ -49,31 +49,32 @@ export const deleteGap = async (orderIndex: number, pitchIndex: number) => {
 
         //////////////////////////////////////////
         // Step 1: Check for conflicts with team schedules
-        // for (const match of matches) {
-        //     const teamsInMatch = [match.team1Id, match.team2Id];
+        for (const match of matches) {
+            const teamsInMatch = [match.team1Id, match.team2Id];
 
-        //     // Query for other matches involving these teams that might now conflict
-        //     const conflictingMatches = await prisma.match.findMany({
-        //         where: {
-        //             OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
-        //             scheduledTime: {
-        //                 // Check for overlap with the rescheduled time of this match
-        //                 gte: match.scheduledTime, // New scheduled time of the match after deleting the gap
-        //                 lt: new Date(match.scheduledTime.getTime() + match.duration * 60 * 1000) // Adjust for match duration
-        //             },
-        //             id: { not: match.id } // Exclude the current match itself
-        //         }
-        //     });
-        //     if (conflictingMatches.length > 0) {
-        //         // Conflict detected
-        //         return {
-        //             success: false,
-        //             message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(
-        //                 ', '
-        //             )}. Conflicts with other matches: ${conflictingMatches.map((cMatch) => cMatch.id).join(', ')}`
-        //         };
-        //     }
-        // }
+            // Query for other matches involving these teams that might now conflict
+            const conflictingMatches = await prisma.match.findMany({
+                where: {
+                    OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
+                    scheduledTime: {
+                        // Check for overlap with the rescheduled time of this match
+                        gte: match.scheduledTime, // New scheduled time of the match after deleting the gap
+                        lt: new Date(match.scheduledTime.getTime() + match.duration * 60 * 1000) // Adjust for match duration
+                    },
+                    id: { not: match.id }, // Exclude the current match itself
+                    eventId: match.eventId // Exclude the current match itself
+                }
+            });
+            if (conflictingMatches.length > 0) {
+                // Conflict detected
+                return {
+                    success: false,
+                    message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(
+                        ', '
+                    )}. Conflicts with other matches: ${conflictingMatches.map((cMatch) => cMatch.id).join(', ')}`
+                };
+            }
+        }
 
         // Step 2: Delete the gap if no conflicts were found
         await prisma.gap.delete({
@@ -177,45 +178,44 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
 
         /////////////////////////////////////////////////////////////////////////////////////////////////
         // Step 1: Retrieve affected matches that will be rescheduled due to the new gap
-        // const affectedMatches = await prisma.match.findMany({
-        //     where: {
-        //         pitchId: pitchIndex,
-        //         orderIndex: {
-        //             gt: orderIndex // Affects matches after the gap
-        //         },
-        //         statusId: 1
-        //     },
-        //     orderBy: { scheduledTime: 'asc' }
-        // });
-        // const affectedTeamIds = affectedMatches.flatMap((match) => [match.team1Id, match.team2Id]);
-        // console.log(affectedMatches, '////////////////////////', affectedTeamIds);
+        const affectedMatches = await prisma.match.findMany({
+            where: {
+                pitchId: pitchIndex,
+                orderIndex: {
+                    gt: orderIndex // Affects matches after the gap
+                },
+                statusId: 1
+            },
+            orderBy: { scheduledTime: 'asc' }
+        });
+        const affectedTeamIds = affectedMatches.flatMap((match) => [match.team1Id, match.team2Id]);
 
         // Step 3: Check if any of the affected teams have conflicting matches at the new scheduled times
-        // for (const match of affectedMatches) {
-        //     const teamsInMatch = [match.team1Id, match.team2Id];
+        for (const match of affectedMatches) {
+            const teamsInMatch = [match.team1Id, match.team2Id];
 
             // Query for any other matches involving these teams that might conflict
-        //     const conflictingMatches = await prisma.match.findMany({
-        //         where: {
-        //             OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
-        //             scheduledTime: {
-        //                 // Check for overlap with the new rescheduled time of the match
-        //                 gte: match.scheduledTime,
-        //                 lt: new Date(match.scheduledTime.getTime() + duration * 60 * 1000) // Adjust for new duration
-        //             },
-        //             id: { not: match.id }, // Exclude the current match itself
-        //             statusId: 1
-        //         }
-        //     });
+            const conflictingMatches = await prisma.match.findMany({
+                where: {
+                    OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
+                    scheduledTime: {
+                        // Check for overlap with the new rescheduled time of the match
+                        gte: match.scheduledTime,
+                        lt: new Date(match.scheduledTime.getTime() + duration * 60 * 1000) // Adjust for new duration
+                    },
+                    id: { not: match.id }, // Exclude the current match itself
+                    statusId: 1
+                }
+            });
 
-        //     if (conflictingMatches.length > 0) {
-        //         // Conflict detected
-        //         return {
-        //             status: 'conflict',
-        //             message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(', ')} with other scheduled matches`
-        //         };
-        //     }
-        // }
+            if (conflictingMatches.length > 0) {
+                // Conflict detected
+                return {
+                    status: 'conflict',
+                    message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(', ')} with other scheduled matches`
+                };
+            }
+        }
 
         ////////////////////////////////////////////////////////////////////////////////////////////////
         const pitchAvailability = await checkPitchAvailability(pitchIndex, duration, extendPitchTime);

@@ -108,7 +108,7 @@ export const moveMatch = async (matchId: number, newOrderIndex: number, newPitch
         // Step 3: Check for conflicts on the destination pitch
         if (!isSamePitch) {
             const teamsInMatch = [match.team1Id, match.team2Id];
-            const conflictingMatchesDestination = await checkTeamConflicts(matchId, teamsInMatch, newPitchIndex, scheduledTime, duration);
+            const conflictingMatchesDestination = await checkTeamConflicts(matchId,match.eventId, teamsInMatch, newPitchIndex, scheduledTime, duration);
 
             // if (conflictingMatchesDestination.length > 0) {
             //     return {
@@ -165,7 +165,7 @@ export const moveMatch = async (matchId: number, newOrderIndex: number, newPitch
 };
 
 
-const checkTeamConflicts = async (matchId: number, teamsInMatch: number[], newPitchIndex: number, newScheduledTime: Date, matchDuration: number) => {
+const checkTeamConflicts = async (matchId: number, eventId:number,teamsInMatch: number[], newPitchIndex: number, newScheduledTime: Date, matchDuration: number) => {
     // Calculate the new match's end time based on its duration
     const matchEndTime = new Date(newScheduledTime.getTime() + matchDuration * 60 * 1000);
 
@@ -179,6 +179,10 @@ const checkTeamConflicts = async (matchId: number, teamsInMatch: number[], newPi
                 {
                     // Exclude the match being moved
                     id: { not: matchId }
+                },
+                {
+                    // Exclude the match being moved
+                    eventId:eventId
                 },
                 {
                     // Find matches that overlap with the new match time
