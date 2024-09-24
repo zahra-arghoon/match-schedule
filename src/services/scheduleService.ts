@@ -159,7 +159,6 @@ export const createOrUpdateMatches = async (
 
         return { status: 'success', message: 'Matches recreated successfully' };
     } catch (error) {
-        console.error('Error creating new matches:', error);
         await prisma.match.updateMany({
             where: { eventId, statusId: 0 },
             data: { statusId: 1 } // Reactivate old matches

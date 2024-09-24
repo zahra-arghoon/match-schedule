@@ -114,7 +114,7 @@ export const scheduleController = async (req: Request, res: Response) => {
                 return res.status(404).json({ error: 'not successful' });
             }
 
-            return res.status(200).json({ message: 'Matches scheduled successfully', data: resd });
+            return res.status(200).json({ message: 'Matches scheduled successfully',data:{eventId:eventId} });
         } catch (error) {
             console.error('Error generating matches:', error);
             return res.status(500).json({ message: 'Match generation was unsuccessful' });
