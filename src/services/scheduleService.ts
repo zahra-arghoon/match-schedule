@@ -8,6 +8,9 @@ import { calculateMatchesPerPitch } from '../utils/validateCustomPitches';
 import { createMatch } from '../services/matchService';
 import { log } from 'console';
 
+
+type InsideMatch = { team1: number; team2: number; groupId: number };
+type TimeSlot = string;
 interface MatchInput {
     match: {
         team1: number;
@@ -26,50 +29,11 @@ interface Match {
     orderIndex: number;
     scheduledTime: Date;
     duration: number;
+    statusId: number;
 }
 
 const prisma = new PrismaClient();
 
-// export const newschedule = async (
-//     eventId: number,
-//     matchGroups: any,
-//     totalMatches: number,
-//     totalGameTime: number,
-//     availableTime: number,
-//     eventStartDate: Date,
-//     eventEndDate: Date,
-//     pitchNumber: number
-// ) => {
-//     return await prisma.$transaction(async (prisma) => {
-//         // Update the event with pitchNumber, startDate, and endDate
-//         await prisma.event.update({
-//             where: { id: eventId },
-//             data: { pitchNumber, startDate: eventStartDate, endDate: eventEndDate }
-//         });
-
-//         const matchesPerPitchArray = calculateMatchesPerPitch(totalMatches, pitchNumber);
-
-//         // Fetch existing matches for deletion
-//         const existingMatches = await prisma.match.findMany({ where: { eventId } });
-//         if (existingMatches.length > 0) {
-//             await prisma.match.deleteMany({ where: { eventId } });
-//         }
-
-//         await createOrUpdatePitches(prisma, eventId, pitchNumber, availableTime);
-
-//         const allPitches = await prisma.pitch.findMany({ where: { eventId } });
-
-//         // Generate time slots and schedule matches
-//         const timeSlots = generateTimeSlotsByGroups(eventStartDate, totalGameTime, matchesPerPitchArray);
-//         const schedule = scheduleMatches(timeSlots, matchGroups);
-//         const groupedMatches = groupScheduledMatchesByTime(schedule);
-
-//         // Create or update matches
-//         const createdMatches = await createOrUpdateMatches(prisma, groupedMatches, eventId, allPitches, totalGameTime);
-
-//         return { status: 'success', message: 'Matches recreated successfully', createdMatches };
-//     });
-// };
 export const newschedule = async (
     eventId: number,
     matchGroups: any,
@@ -78,7 +42,8 @@ export const newschedule = async (
     availableTime: number,
     eventStartDate: Date,
     eventEndDate: Date,
-    pitchNumber: number
+    pitchNumber: number,
+    maxTeamcount: number
 ) => {
     try {
         // Update the event with pitchNumber, startDate, and endDate
@@ -87,45 +52,47 @@ export const newschedule = async (
             data: { pitchNumber: pitchNumber, startDate: eventStartDate, endDate: eventEndDate }
         });
         const matchesPerPitchArray = calculateMatchesPerPitch(totalMatches, pitchNumber); // Use the function to get the match distribution
-        // Create or update the pitches
-        await prisma.match.deleteMany({ where: { eventId } });
+        const matchesPerPitch = matchesPerPitchArray[0];
 
-        await createOrUpdatePitches(eventId, pitchNumber, availableTime);
-        // Fetch all pitches for the event
-        const allPitches = await prisma.pitch.findMany({ where: { eventId: eventId } });
-        // Generate time slots and schedule matches
+        const minTeam = --maxTeamcount;
+        if (matchesPerPitch < minTeam) {
+            return { status: 'error', message: 'this event does not have valid number of match Per pitch for your teams' };
+        }
         const result = generateTimeSlotsByGroups(eventStartDate, totalGameTime, matchesPerPitchArray);
+
         let pitchTimeSlots: string[][] = result;
 
         const schedule = scheduleMatches(pitchTimeSlots, matchGroups);
         const groupedMatches = groupScheduledMatchesByTime(schedule);
+       const createdMatches = await createOrUpdateMatches(groupedMatches, eventId, availableTime, pitchNumber, totalGameTime);
 
-        // Create or update matches
-        const createdMatches = await createOrUpdateMatches(groupedMatches, eventId, allPitches, totalGameTime);
-
-        if (createdMatches.status === 'success') {
-            return { status: 'success', message: 'Matches recreated successfully', createdMatches };
-        } else {
-            return { status: 'error', message: 'Failed to schedule matches' };
-        }
-        return { status: 'success', message: 'Matches recreated successfully', createdMatches };
+       if (createdMatches.status === 'success') {
+           return { status: 'success', message: 'Matches recreated successfully', createdMatches };
+       } else {
+           return { status: 'error', message: 'Failed to schedule matches' };
+       }
     } catch (error) {
         console.error('Error during scheduling:', error);
         return { status: 'error', message: 'Failed to schedule matches' };
     }
 };
-
 export const createOrUpdatePitches = async (eventId: number, pitchNumber: number, availableTime: number) => {
     try {
-        await prisma.pitch.deleteMany({ where: { eventId } });
+        // Step 1: Mark old pitches as inactive (soft delete)
+        await prisma.pitch.updateMany({
+            where: { eventId, statusId: 1 }, // Only update active pitches
+            data: { statusId: 0 }
+        });
 
-        const pitchesToCreate = Array.from({ length: pitchNumber }, (_, index) => ({
+        // Step 2: Create new pitches
+        const newPitches = Array.from({ length: pitchNumber }, (_, index) => ({
             eventId,
             duration: availableTime,
-            name: `Pitch ${index + 1}`
+            name: `Pitch ${index + 1}`,
+            statusId: 1 // Mark new pitches as active
         }));
 
-        await prisma.pitch.createMany({ data: pitchesToCreate });
+        await prisma.pitch.createMany({ data: newPitches });
 
         return { status: 'success', message: 'Pitches recreated successfully' };
     } catch (error) {
@@ -133,13 +100,33 @@ export const createOrUpdatePitches = async (eventId: number, pitchNumber: number
         return { status: 'error', message: 'Failed to recreate pitches' };
     }
 };
-
-export const createOrUpdateMatches = async (data: MatchInput[][], eventId: number, allPitches: any, totalGameTime: number) => {
+export const createOrUpdateMatches = async (
+    data: MatchInput[][],
+    eventId: number,
+    availableTime: number,
+    pitchNumber: number,
+    totalGameTime: number
+) => {
     try {
+        // Step 1: Create or update the pitches
+        const pitchResult = await createOrUpdatePitches(eventId, pitchNumber, availableTime);
+        if (pitchResult.status === 'error') {
+            return pitchResult; // Exit if pitch creation fails
+        }
 
-        const matches: Match[] = [];
+        // Step 2: Fetch all active pitches for the event
+        const allPitches = await prisma.pitch.findMany({ where: { eventId, statusId: 1 } });
+
+        // Step 3: Mark old matches as inactive (soft delete)
+        await prisma.match.updateMany({
+            where: { eventId, statusId: 1 }, // Only update active matches
+            data: { statusId: 0 }
+        });
+
+        // Step 4: Prepare the new matches for creation
+        const newMatches: Match[] = [];
         data.forEach((group, groupIndex) => {
-            const orderInddex = ++groupIndex;
+            const orderIndex = ++groupIndex;
 
             group.forEach((matchInfo, matchIndex) => {
                 const match: Match = {
@@ -147,21 +134,48 @@ export const createOrUpdateMatches = async (data: MatchInput[][], eventId: numbe
                     team1Id: matchInfo.match.team1,
                     team2Id: matchInfo.match.team2,
                     groupId: matchInfo.match.groupId,
-                    pitchId: allPitches[matchIndex].id,
-                    orderIndex: orderInddex,
+                    pitchId: allPitches[matchIndex].id, // Use pre-fetched pitches
+                    orderIndex: orderIndex,
                     scheduledTime: new Date(matchInfo.time),
-                    duration: totalGameTime
+                    duration: totalGameTime,
+                    statusId: 1 // New matches are active
                 };
-                matches.push(match);
+                newMatches.push(match);
             });
         });
 
-        await prisma.match.createMany({ data: matches });
+        await prisma.$transaction(async (prisma) => {
+            // Insert new matches
+            await prisma.match.createMany({
+                data: newMatches
+            });
+
+            await prisma.match.deleteMany({
+                where: { eventId, statusId: 0 } // Delete inactive matches
+            });
+
+            await prisma.pitch.deleteMany({
+                where: { eventId, statusId: 0 } // Delete inactive pitches
+            });
+        });
 
         return { status: 'success', message: 'Matches recreated successfully' };
     } catch (error) {
-        console.error('Error creating or updating matches:', error);
-        return { status: 'error', message: 'Failed to recreate matches' };
+        console.error('Error creating new matches:', error);
+        await prisma.match.updateMany({
+            where: { eventId, statusId: 0 },
+            data: { statusId: 1 } // Reactivate old matches
+        });
+
+        await prisma.pitch.deleteMany({
+            where: { eventId, statusId: 1 } // Delete newly created pitches
+        });
+        await prisma.pitch.updateMany({
+            where: { eventId, statusId: 0 },
+            data: { statusId: 1 } // Reactivate old pitches
+        });
+
+        return { status: 'error', message: 'Failed to recreate matches. Old matches and pitches were restored.' };
     }
 };
 function scheduleMatches(availableTimes: TimeSlot[][], matchGroups: InsideMatch[][]): { match: InsideMatch; time: TimeSlot }[] {
@@ -173,8 +187,6 @@ function scheduleMatches(availableTimes: TimeSlot[][], matchGroups: InsideMatch[
     const pitches = availableTimes.length;
     const matchesPerPitch = availableTimes[0].length;
 
-    console.log(pitches, 'pitches');
-    console.log(matchesPerPitch, 'matchesPerPitch');
 
     matchGroups.forEach((groupMatches) => {
         let matchIndex = 0;
@@ -213,22 +225,6 @@ function scheduleMatches(availableTimes: TimeSlot[][], matchGroups: InsideMatch[
 
     return scheduledMatches;
 }
-
-const generateTimeSlots = (startDate: Date, endDate: Date, gameTime: number): string[] => {
-    let slots: string[] = [];
-    let currentTime = new Date(startDate);
-
-    while (currentTime.getTime() + gameTime * 60 * 1000 <= endDate.getTime()) {
-        slots.push(currentTime.toISOString());
-        currentTime.setMinutes(currentTime.getMinutes() + gameTime);
-    }
-
-    return slots;
-};
-
-type InsideMatch = { team1: number; team2: number; groupId: number };
-type TimeSlot = string;
-
 function groupScheduledMatchesByTime(scheduledMatches: { match: InsideMatch; time: TimeSlot }[]): { match: InsideMatch; time: TimeSlot }[][] {
     const groupedMatches: Record<string, { match: InsideMatch; time: TimeSlot }[]> = {};
 

@@ -6,7 +6,6 @@ import { getAssignedTeamCount } from '../services/teamService';
 import { getMatchesByEventId } from '../services/matchService';
 import { ITeam, IGroup } from '../interfaces/interface';
 import { generateMatches } from '../services/generateMatchesService';
-import { scheduleMatches } from '../services/setMatchTimeService';
 import { extractMatches } from '../services/extractData';
 import { calculatePitchesNeeded } from '../utils/getPitchNumber';
 import { createTiming, getAllTimings, getTimingById, updateTiming } from '../services/timingService';
@@ -43,12 +42,16 @@ export const scheduleController = async (req: Request, res: Response) => {
         }
 
         let messages: string[] = [];
+        let maxTeamcount = 0;
         for (const group of groups) {
             const teamCount = group.teams ? group.teams.length : 0; // Handle undefined teams
 
             if (teamCount <= 2) {
                 const message: string = `Group with name ${group.name} does not have the minimum number of teams`;
                 messages.push(message);
+            }
+            if (teamCount >= maxTeamcount) {
+                maxTeamcount = teamCount;
             }
         }
 
@@ -92,7 +95,6 @@ export const scheduleController = async (req: Request, res: Response) => {
             const availableTime = (end - start) / 1000 / 60; // Available time in minutes
             const { pitchNumber, matchesPerPitch } = calculatePitchesNeeded(totalMatches, totalGameTime, availableTime);
 
-
             // Call the scheduling function with eventId and event details
             const resd = await newschedule(
                 eventId,
@@ -102,11 +104,15 @@ export const scheduleController = async (req: Request, res: Response) => {
                 availableTime,
                 event.startDate,
                 event.endDate,
-                pitchNumber
+                pitchNumber,
+                maxTeamcount
             );
-          if (resd.status !== 'success') {
-              return res.status(404).json({ error: 'not successful' });
-          }
+            if (resd.status === 'error') {
+                return res.status(404).json({ maeesage: resd.message });
+            }
+            if (resd.status !== 'success') {
+                return res.status(404).json({ error: 'not successful' });
+            }
 
             return res.status(200).json({ message: 'Matches scheduled successfully', data: resd });
         } catch (error) {
@@ -135,6 +141,9 @@ export const updateEventTimingController = async (req: Request, res: Response) =
         // Fetch event details and matches
         const { startDate, endDate, pitchNumber } = await getEventById(eventId);
         const matches = await getMatchesByEventId(eventId);
+        if (matches.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'no matches found to schedule! ' });
+        }
 
         // Calculate available time in minutes
         const availableTime = (endDate.getTime() - startDate.getTime()) / 1000 / 60;
@@ -144,19 +153,38 @@ export const updateEventTimingController = async (req: Request, res: Response) =
         const nn: number | any = pitchNumber;
         // Validate custom pitch number and timing
         const { valid, message } = validateCustomPitches(nn, matches.length, totalGameTime, availableTime);
+        const groups = await getAllGroupsFromDb();
+        let maxTeamcount = 0;
+        for (const group of groups) {
+            const teamCount = group.teams ? group.teams.length : 0; // Handle undefined teams
+            if (teamCount >= maxTeamcount) {
+                maxTeamcount = teamCount;
+            }
+        }
 
         if (valid || addPitch) {
             // If valid, schedule matches with the provided pitch number
             const { pitchNumber } = calculatePitchesNeeded(matches.length, totalGameTime, availableTime);
 
             const { matchesByGroup, matchCount } = extractMatches(matches);
-            const resd = await newschedule(eventId, matchesByGroup, matchCount, totalGameTime, availableTime, startDate, endDate, pitchNumber);
-            
+            const resd = await newschedule(
+                eventId,
+                matchesByGroup,
+                matchCount,
+                totalGameTime,
+                availableTime,
+                startDate,
+                endDate,
+                pitchNumber,
+                maxTeamcount
+            );
+            if (resd.status === 'error') {
+                return res.status(404).json({ maeesage: resd.message });
+            }
             if (resd.status !== 'success') {
-              return res.status(404).json({ error: 'not successful' });
+                return res.status(404).json({ error: 'not successful' });
             }
         } else if (extendPitchTime) {
-
             // If extending pitch time, adjust the event end date
             const { startDate, endDate, timeId } = await getEventById(eventId);
             const ii: number | any = timeId;
@@ -176,6 +204,10 @@ export const updateEventTimingController = async (req: Request, res: Response) =
             const updatedAvailableTime = (updatedEvent.endDate.getTime() - updatedEvent.startDate.getTime()) / 1000 / 60;
 
             const { pitchNumber } = calculatePitchesNeeded(matches.length, totalGameTime, updatedAvailableTime);
+            const minTeam = --maxTeamcount;
+            if (pitchNumber < minTeam) {
+                return res.status(402).json({ message: 'this event does not have valid number of pitches for your teams' });
+            }
             const { matchesByGroup, matchCount } = extractMatches(matches);
             const resd = await newschedule(
                 eventId,
@@ -185,21 +217,22 @@ export const updateEventTimingController = async (req: Request, res: Response) =
                 availableTime,
                 updatedEvent.startDate,
                 updatedEvent.endDate,
-                pitchNumber
+                pitchNumber,
+                maxTeamcount
             );
+            if (resd.status === 'error') {
+                return res.status(404).json({ maeesage: resd.message });
+            }
             if (resd.status !== 'success') {
-              return res.status(404).json({ error: 'not successful' });
+                return res.status(404).json({ error: 'not successful' });
             }
         } else {
-          
             // If neither valid nor adding pitch nor extending time, return error message
             return res.status(422).json({ message });
         }
         const updatedEvent = await updateEventTiming(eventId, { gameTime, halfTime, gapTime });
         if (!updatedEvent) return res.status(404).json({ error: 'Event not found' });
         res.status(200).json({ message: 'Event timing updated successfully or not' });
-
-
     } catch (error) {
         console.error('Failed to update event:', error);
         res.status(500).json({ error: 'Failed to update event' });
@@ -220,6 +253,9 @@ export const customScheduleController = async (req: Request, res: Response) => {
         const { pitchNumber, startDate, endDate } = req.body;
 
         const event = await getEventById(eventId);
+        if (event.matches.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'no matches found to schedule! ' });
+        }
 
         const { data, status, message } = await getTimingById(event.timeId || 1);
         // const matches = await getMatchesByEventId(event.id);
@@ -248,8 +284,18 @@ export const customScheduleController = async (req: Request, res: Response) => {
         }
 
         const finalPitchNumber = pitchNumber ? pitchNumber : calculatePitchesNeeded(event.matches.length, totalGameTime, availableTime).pitchNumber;
+        console.log(finalPitchNumber, 'final pitch number');
 
+        const groups = await getAllGroupsFromDb();
+        let maxTeamcount = 0;
+        for (const group of groups) {
+            const teamCount = group.teams ? group.teams.length : 0; // Handle undefined teams
+            if (teamCount >= maxTeamcount) {
+                maxTeamcount = teamCount;
+            }
+        }
         const { matchesByGroup, matchCount } = extractMatches(event.matches);
+        
         const resd = await newschedule(
             eventId,
             matchesByGroup,
@@ -258,8 +304,12 @@ export const customScheduleController = async (req: Request, res: Response) => {
             availableTime,
             eventStartDate,
             eventEndDate,
-            finalPitchNumber
+            finalPitchNumber,
+            maxTeamcount
         );
+        if (resd.status === 'error') {
+            return res.status(404).json({ maeesage: resd.message });
+        }
         return res.status(200).json({ status: 'Success', message: 'event schedule updated', data: resd });
     } catch (error) {
         return res.status(500).json({ message: 'Internal server error', error });

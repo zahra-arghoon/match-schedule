@@ -47,7 +47,7 @@ model Event {
   id          Int      @id @default(autoincrement())
   name        String   @default("event1")
   startDate   DateTime @default("2023-01-01T08:00:00.000Z")
-  endDate     DateTime @default("2023-01-01T12:00:00.000Z")
+  endDate     DateTime @default("2023-01-01T15:00:00.000Z")
   pitchNumber      Int?     
   timeId      Int     @default(1)
   timing      Timing   @relation(fields: [timeId], references: [id])
@@ -76,8 +76,9 @@ model Match {
 
   orderIndex  Int
   duration    Int
-
+  statusId     Int      @default(1)
   scheduledTime DateTime
+
 }
 
 
@@ -97,6 +98,7 @@ model Pitch {
   name        String
   gaps        Gap[]   @relation("PitchGaps")
   matches        Match[]   @relation("pitchMatches")
+  statusId     Int      @default(1)
 }
     
 

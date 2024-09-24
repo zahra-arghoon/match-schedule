@@ -45,20 +45,20 @@ export const moveMatchController = async (req: Request, res: Response) => {
              }
      */
     try {
-        const { matchId, newOrderIndex, pitchIndex } = req.body;
+        const { matchId, newOrderIndex, pitchIndex, extendPitchTime } = req.body;
 
         if (matchId === undefined || newOrderIndex === undefined || pitchIndex === undefined) {
             return res.status(400).json({ status: 'error', message: 'matchId, newOrderIndex, and pitchIndex are required.' });
         }
 
-        const result = await moveMatch(matchId, newOrderIndex, pitchIndex);
+        const result = await moveMatch(matchId, newOrderIndex, pitchIndex, extendPitchTime);
 
         if (result.success) {
           return res.status(200).json({ status: 'success', message: result.message });
         } else {
           return res.status(400).json({ status: 'error', message: result.message });
         }
-        await moveMatch(matchId, newOrderIndex, pitchIndex);
+        // await moveMatch(matchId, newOrderIndex, pitchIndex);
 
         return res.status(200).json({ status: 'success', message: result.message });
     } catch (error) {
@@ -75,7 +75,7 @@ export const getPitchesWithMatchesAndGaps = async (req: Request, res: Response) 
 
     // Fetch all pitches with matches and gaps for the event
     const pitches = await prisma.pitch.findMany({
-      where: { eventId: Number(id) },
+      where: { eventId: Number(id),statusId: 1 },
       include: {
         matches: true, // Include matches
         gaps: true,    // Include gaps

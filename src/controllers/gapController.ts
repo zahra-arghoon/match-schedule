@@ -5,6 +5,7 @@ import { addGap, deleteGap, getGapByPitchId } from '../services/gapService';
 import { getPitchById, getGroupedMatch } from '../services/pitchService';
 import { PrismaClient } from '@prisma/client';
 import { Match, Gap, Event } from '../interfaces/interface';
+import { log } from 'util';
 const prisma = new PrismaClient();
 export const addGapToMatchController = async (req: Request, res: Response) => {
     /*
@@ -16,8 +17,7 @@ export const addGapToMatchController = async (req: Request, res: Response) => {
              }
      */
     try {
-        const { orderIndex, pitchIndex, gapTime } = req.body;
-        const { extendPitchTime = false } = req.body;
+        const { orderIndex, pitchIndex, gapTime, extendPitchTime = false } = req.body;
 
         // Validate required fields
         if (pitchIndex === undefined || gapTime === undefined) {
@@ -43,6 +43,7 @@ export const addGapToMatchController = async (req: Request, res: Response) => {
         return res.status(500).json({ status: 'error', message: 'Internal server error.' });
     }
 };
+
 export const deleteGapController = async (req: Request, res: Response) => {
     /*
          #swagger.tags = ['GapMatch']
@@ -55,6 +56,7 @@ export const deleteGapController = async (req: Request, res: Response) => {
     try {
         const { pitchIndex, orderIndex } = req.body;
 
+        // Validate required fields
         if (pitchIndex === undefined || orderIndex === undefined) {
             return res.status(400).json({ status: 'error', message: 'pitchIndex and orderIndex are required.' });
         }
@@ -82,35 +84,34 @@ export const moveGapController = async (req: Request, res: Response) => {
              }
      */
     try {
-        const { oldOrderIndex, newOrderIndex, pitchIndex, newPitchIndex } = req.body;
+        const { oldOrderIndex, newOrderIndex, pitchIndex, newPitchIndex, extendPitchTime = false } = req.body;
 
-        // Validate input
+        // Validate required fields
         if (oldOrderIndex === undefined || newOrderIndex === undefined || pitchIndex === undefined || newPitchIndex === undefined) {
-            return res.status(400).json({ success: false, message: 'Invalid input' });
+            return res.status(400).json({ status: 'error', message: 'oldOrderIndex, newOrderIndex, pitchIndex, and newPitchIndex are required.' });
         }
 
         // Get the gap duration to be used later
         const gap = await getGapByPitchId(pitchIndex, oldOrderIndex);
         if (!gap) {
-            return res.status(404).json({ success: false, message: 'Gap not found' });
+            return res.status(404).json({ status: 'error', message: 'Gap not found' });
         }
         const duration = gap.duration ?? 0;
 
-        // Step 1: Delete the existing gap
+        const addResult = await addGap(newOrderIndex, newPitchIndex, duration, extendPitchTime); // Assuming you want to extend pitch time
+        if (addResult.status !== 'success') {
+            return res.status(500).json({ status: 'error', message: addResult.message });
+        }
         const deleteResult = await deleteGap(oldOrderIndex, pitchIndex);
         if (!deleteResult.success) {
-            return res.status(500).json({ success: false, message: deleteResult.message });
+            return res.status(500).json({ status: 'error', message: deleteResult.message });
         }
 
-        // Step 2: Add the new gap at the new position
-        const addResult = await addGap(newOrderIndex, newPitchIndex, duration, true); // Assuming you want to extend pitch time
-        if (addResult.status !== 'success') {
-            return res.status(500).json({ success: false, message: addResult.message });
-        }
 
-        res.status(200).json({ success: true, message: 'Gap moved successfully' });
+        return res.status(200).json({ status: 'success', message: 'Gap moved successfully' });
     } catch (error) {
         console.error('Error moving gap:', error);
-        res.status(500).json({ success: false, message: 'Failed to move gap' });
+        return res.status(500).json({ status: 'error', message: 'Failed to move gap' });
     }
 };
+

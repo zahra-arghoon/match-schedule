@@ -21,7 +21,8 @@ export const definitions = {
         oldOrderIndex: 12,
         newOrderIndex: 22,
         pitchIndex: 22,
-        newPitchIndex: 332
+        newPitchIndex: 332,
+        extendPitchTime: true
     },
     MatchDelGap: {
         orderIndex: 3,

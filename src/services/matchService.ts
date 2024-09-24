@@ -2,6 +2,8 @@ import { PrismaClient } from '@prisma/client';
 // import { getMatchById, getMatchByPitchId, getPitchById } from './path-to-your-repository-functions'; // Update with the actual path
 import { getPitchById } from './pitchService';
 import { getEventById } from './eventService';
+import { checkPitchAvailability } from '../utils/validateCustomPitches';
+import { log } from 'console';
 
 const prisma = new PrismaClient();
 interface Match {
@@ -29,23 +31,25 @@ export const getMatchByPitchId=async(pitchId:number,orderIndex:number|any)=>{
 
   return await prisma.match.findMany({
       where: {
-        pitchId: pitchId,
-        orderIndex: {
-        gte: orderIndex,
-      },
+          pitchId: pitchId,
+          statusId: 1,
+          orderIndex: {
+              gte: orderIndex
+          }
       },
       orderBy: {
-        orderIndex: 'asc',  
-      },
-    });
+          orderIndex: 'asc'
+      }
+  });
   }
 export const getOneMatchByPitchId=async(pitchId:number)=>{
 
-  const match:any = await prisma.match.findFirst({
+  const match: any = await prisma.match.findFirst({
       where: {
-        pitchId: pitchId,
-      },
-    });
+          pitchId: pitchId,
+          statusId: 1
+      }
+  });
     return match 
    
   }
@@ -53,17 +57,18 @@ export const getMatchesByEventId=async(eventId:number)=>{
 
   return await prisma.match.findMany({
       where: {
-        eventId: eventId,
+          eventId: eventId,
+          statusId: 1
       },
       orderBy: {
-        pitchId: 'asc',  
-      },
-    });
+          pitchId: 'asc'
+      }
+  });
   }
   // Get all Match configurations
   export const getAllMatchs = async () => {
     try {
-      return await prisma.match.findMany();
+      return await prisma.match.findMany({where:{statusId:1}});
     } catch (error) {
       console.error('Error fetching all Matchs:', error);
       throw new Error('Failed to fetch Matchs');
@@ -74,7 +79,7 @@ export const getMatchesByEventId=async(eventId:number)=>{
 export const getMatchById = async (id: number) => {
     try {
       const Match = await prisma.match.findUnique({
-        where: { id },
+          where: { id, statusId: 1 }
       });
   
       if (!Match) {
@@ -89,79 +94,126 @@ export const getMatchById = async (id: number) => {
     }
 };
   
-export const moveMatch = async (matchId: number, newOrderIndex: number, pitchIndex: number) => {
-  try {
-    // Find the match to be moved
+export const moveMatch = async (matchId: number, newOrderIndex: number, newPitchIndex: number, extendPitchTime: boolean) => {
+    try {
+        // Step 1: Find the match to be moved
+        const match = await prisma.match.findUniqueOrThrow({
+            where: { id: matchId, statusId: 1 }
+        });
+        const { pitchId: originalPitchId, orderIndex: originalOrderIndex, scheduledTime, duration } = match;
 
-    const mat = await getMatchById(matchId);
-    const match = await prisma.match.findUniqueOrThrow({
-      where: { id: matchId }
-    });
-    // Get the current pitch and orderIndex of the match
-    const { pitchId, orderIndex, scheduledTime } = match;
-    const order :any = orderIndex
+        // Step 2: Check if you are moving within the same pitch or to a different pitch
+        const isSamePitch = originalPitchId === newPitchIndex;
 
-    // Ensure the new pitchIndex is valid
-    if (pitchIndex !== pitchId) {
-      return { success: false, message: 'Match cannot be moved to a different pitch' };
-    }
-   
-    // Retrieve all matches and gaps for the pitch
+        // Step 3: Check for conflicts on the destination pitch
+        if (!isSamePitch) {
+            const teamsInMatch = [match.team1Id, match.team2Id];
+            const conflictingMatchesDestination = await checkTeamConflicts(matchId, teamsInMatch, newPitchIndex, scheduledTime, duration);
 
-    if (order < newOrderIndex) {
-      await prisma.match.updateMany({
-        where: {
-          pitchId: pitchIndex,
-          orderIndex: {
-            gt: order,
-            lte: newOrderIndex
-          }
-        },
-        data: {
-          orderIndex: {
-            decrement: 1
-          }
+            if (conflictingMatchesDestination.length > 0) {
+                return {
+                    success: false,
+                    message: `Conflict detected on destination pitch with other matches: ${conflictingMatchesDestination.map((m) => m.id).join(', ')}`
+                };
+            }
+
+            // Check if the new pitch can accommodate the match (including gaps)
+            const pitchAvailability = await checkPitchAvailability(newPitchIndex, duration, extendPitchTime);
+
+            if (pitchAvailability.status === 'extend_required') {
+                return { success: false, message: 'Pitch duration needs to be extended to accommodate the match on the destination pitch' };
+            }
+
+            if (pitchAvailability.status === 'extended') {
+                console.log('Pitch duration extended successfully');
+            }
         }
-      });
-    } else {
-      await prisma.match.updateMany({
-        where: {
-          pitchId: pitchIndex,
-          orderIndex: {
-            gte: newOrderIndex,
-            lt: order
-          }
-        },
-        data: {
-          orderIndex: {
-            increment: 1
-          }
-        }
-      });
-    }
 
-    // Update the moved match's new orderIndex
-    await prisma.match.update({
-      where: { id: matchId },
-      data: {
-        orderIndex: newOrderIndex
-      }
+        // Step 4: Adjust order indexes based on whether it's the same pitch or a different one
+        if (isSamePitch) {
+            // If moving within the same pitch, just adjust the orderIndex on that pitch
+            await adjustOrderIndexesSamePitch(originalPitchId, originalOrderIndex, newOrderIndex);
+        } else {
+            // If moving to a different pitch, adjust the order indexes on both pitches
+            await adjustOrderIndexesOriginalPitch(originalPitchId, originalOrderIndex); // Adjust orderIndex on the original pitch
+            await adjustOrderIndexesNewPitch(newPitchIndex, newOrderIndex); // Adjust orderIndex on the new pitch
+        }
+
+        // Step 5: Update the match with the new pitch and orderIndex
+        await prisma.match.update({
+            where: { id: matchId, statusId: 1 },
+            data: {
+                pitchId: newPitchIndex,
+                orderIndex: newOrderIndex
+            }
+        });
+
+        // Step 6: Update schedules on both pitches (if moving to a new pitch)
+        if (!isSamePitch) {
+            await updateMatchSchedule(newPitchIndex); // Update the schedule on the destination pitch
+            await updateMatchSchedule(originalPitchId); // Update the schedule on the original pitch
+        } else {
+            // If moving within the same pitch, update its schedule
+            await updateMatchSchedule(originalPitchId);
+        }
+
+        return { success: true, message: 'Match moved and timings updated successfully' };
+    } catch (error) {
+        console.error('Error moving match:', error);
+        return { success: false, message: 'Failed to move match' };
+    }
+};
+
+
+const checkTeamConflicts = async (matchId: number, teamsInMatch: number[], newPitchIndex: number, newScheduledTime: Date, matchDuration: number) => {
+    // Calculate the new match's end time based on its duration
+    const matchEndTime = new Date(newScheduledTime.getTime() + matchDuration * 60 * 1000);
+
+    // Fetch any conflicting matches involving the same teams
+    const conflictingMatches = await prisma.match.findMany({
+        where: {
+            AND: [
+                {
+                    OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }]
+                },
+                {
+                    // Exclude the match being moved
+                    id: { not: matchId }
+                },
+                {
+                    // Find matches that overlap with the new match time
+                    OR: [
+                        {
+                            scheduledTime: {
+                                lte: matchEndTime // Start time before the new match ends
+                            },
+                            duration: {
+                                gt: 0 // Only consider matches with a positive duration
+                            }
+                        },
+                        {
+                            scheduledTime: {
+                                gte: newScheduledTime // Start time after the new match starts
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        orderBy: {
+            scheduledTime: 'asc'
+        }
     });
 
-    await updateMatchSchedule(pitchId);
-
-    return { success: true, message: 'Match moved and timings updated successfully' };
-  } catch (error) {
-    console.error('Error moving match:', error);
-    return { success: false, message: 'Failed to move match' };
-  }
+    // Return the conflicting matches, if any
+    return conflictingMatches;
 };
 
 const updateMatchSchedule = async (pitchIndex: number) => {
   try {
         const matches = await prisma.match.findMany({
-          where: { pitchId: pitchIndex },
-          orderBy: { orderIndex: 'asc' }
+            where: { pitchId: pitchIndex, statusId: 1 },
+            orderBy: { orderIndex: 'asc' }
         });
         const gaps = await prisma.gap.findMany({
           where: { pitchId:pitchIndex },
@@ -190,8 +242,8 @@ const updateMatchSchedule = async (pitchIndex: number) => {
     
           // Update the match's scheduled time
           await prisma.match.update({
-            where: { id: match.id },
-            data: { scheduledTime: newScheduledTime },
+              where: { id: match.id, statusId: 1 },
+              data: { scheduledTime: newScheduledTime }
           });
           currentTime = new Date(currentTime.getTime() + duration * 60 * 1000); // Add match duration in milliseconds
     
@@ -201,13 +253,82 @@ const updateMatchSchedule = async (pitchIndex: number) => {
     console.error('Error updating match schedules:', error);
   }
 };
-
+const adjustOrderIndexesSamePitch = async (pitchId: number, oldOrderIndex: number, newOrderIndex: number) => {
+    if (oldOrderIndex < newOrderIndex) {
+        await prisma.match.updateMany({
+            where: {
+                pitchId,
+                statusId: 1,
+                orderIndex: {
+                    gt: oldOrderIndex,
+                    lte: newOrderIndex
+                }
+            },
+            data: {
+                orderIndex: {
+                    decrement: 1
+                }
+            }
+        });
+    } else {
+        await prisma.match.updateMany({
+            where: {
+                pitchId,
+                statusId: 1,
+                orderIndex: {
+                    gte: newOrderIndex,
+                    lt: oldOrderIndex
+                }
+            },
+            data: {
+                orderIndex: {
+                    increment: 1
+                }
+            }
+        });
+    }
+};
+const adjustOrderIndexesOriginalPitch = async (pitchId: number, oldOrderIndex: number) => {
+    // Decrement the orderIndex of matches that were scheduled after the removed match
+    await prisma.match.updateMany({
+        where: {
+            pitchId,
+            statusId: 1,
+            orderIndex: {
+                gt: oldOrderIndex
+            }
+        },
+        data: {
+            orderIndex: {
+                decrement: 1
+            }
+        }
+    });
+};
+const adjustOrderIndexesNewPitch = async (pitchId: number, newOrderIndex: number) => {
+    // Increment the orderIndex of matches that are scheduled after the new match position
+    await prisma.match.updateMany({
+        where: {
+            pitchId,
+            statusId: 1,
+            orderIndex: {
+                gte: newOrderIndex
+            }
+        },
+        data: {
+            orderIndex: {
+                increment: 1
+            }
+        }
+    });
+};
 
 export const findConflictingMatches = async (eventId: number) => {
     try {
         const matches = await prisma.match.findMany({
             where: {
-                eventId: eventId
+                eventId: eventId,
+                statusId: 1
             },
             include: {
                 team1: true,
@@ -262,3 +383,36 @@ export const findConflictingMatches = async (eventId: number) => {
 
 
 
+export const checkForConflicts = async (team1Id: number, team2Id: number, scheduledTime: Date, duration: number) => {
+    const conflictingMatches = await prisma.match.findMany({
+        where: {
+            OR: [{ team1Id: team1Id }, { team2Id: team2Id }],
+            AND: [
+                {
+                    scheduledTime: {
+                        lte: new Date(scheduledTime.getTime() + duration * 60 * 1000) // Check if a match ends after this match's start
+                    }
+                },
+                {
+                    scheduledTime: {
+                        gte: new Date(scheduledTime.getTime() - duration * 60 * 1000) // Check if a match starts before this match ends
+                    }
+                },
+                {  statusId: 1}
+            ],
+        }
+    });
+
+    return conflictingMatches.length > 0;
+};
+// const checkForConflicts = async (team1Id:number, team2Id:number, scheduledTime:Date) => {
+//     const conflictingMatches = await prisma.match.findMany({
+//         where: {
+//             OR: [
+//                 { team1Id: team1Id, scheduledTime: scheduledTime },
+//                 { team2Id: team2Id, scheduledTime: scheduledTime }
+//             ]
+//         }
+//     });
+//     return conflictingMatches.length > 0;
+// };
