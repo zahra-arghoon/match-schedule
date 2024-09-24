@@ -1,18 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import { calculateMatchesPerPitch } from '../utils/validateCustomPitches';
+import { realSchedule } from '../services/coreSchedule';
 import { createMatch } from '../services/matchService';
 import { log } from 'console';
-type InsideMatch = { team1: number; team2: number; groupId: number };
-type TimeSlot = string;
-interface MatchInput {
-    match: {
-        team1: number;
-        team2: number;
-        groupId: number;
-    };
-    time: string;
-}
 
+type ScheduledItem = {
+    time: string;
+    pitchNumber: number;
+    orderindex: number;
+    team1: number;
+    team2: number;
+    groupId: number;
+};
 interface Match {
     eventId: number;
     team1Id: number;
@@ -55,15 +54,14 @@ export const newschedule = async (
 
         let pitchTimeSlots: string[][] = result;
 
-        const schedule = scheduleMatches(pitchTimeSlots, matchGroups);
-        const groupedMatches = groupScheduledMatchesByTime(schedule);
-       const createdMatches = await createOrUpdateMatches(groupedMatches, eventId, availableTime, pitchNumber, totalGameTime);
+        const schedule = realSchedule(pitchTimeSlots, matchGroups);
+        const createdMatches = await createOrUpdateMatches(schedule, eventId, availableTime, pitchNumber, totalGameTime);
 
-       if (createdMatches.status === 'success') {
-           return { status: 'success', message: 'Matches recreated successfully', createdMatches };
-       } else {
-           return { status: 'error', message: 'Failed to schedule matches' };
-       }
+        if (createdMatches.status === 'success') {
+            return { status: 'success', message: 'Matches recreated successfully', createdMatches };
+        } else {
+            return { status: 'error', message: 'Failed to schedule matches' };
+        }
     } catch (error) {
         console.error('Error during scheduling:', error);
         return { status: 'error', message: 'Failed to schedule matches' };
@@ -94,13 +92,14 @@ export const createOrUpdatePitches = async (eventId: number, pitchNumber: number
     }
 };
 export const createOrUpdateMatches = async (
-    data: MatchInput[][],
+    data: ScheduledItem[],
     eventId: number,
     availableTime: number,
     pitchNumber: number,
     totalGameTime: number
 ) => {
     try {
+
         // Step 1: Create or update the pitches
         const pitchResult = await createOrUpdatePitches(eventId, pitchNumber, availableTime);
         if (pitchResult.status === 'error') {
@@ -118,23 +117,23 @@ export const createOrUpdateMatches = async (
 
         // Step 4: Prepare the new matches for creation
         const newMatches: Match[] = [];
-        data.forEach((group, groupIndex) => {
-            const orderIndex = ++groupIndex;
+        // data.forEach((scheduledItem) => {console.log(scheduledItem);
+        // })
 
-            group.forEach((matchInfo, matchIndex) => {
-                const match: Match = {
-                    eventId,
-                    team1Id: matchInfo.match.team1,
-                    team2Id: matchInfo.match.team2,
-                    groupId: matchInfo.match.groupId,
-                    pitchId: allPitches[matchIndex].id, // Use pre-fetched pitches
-                    orderIndex: orderIndex,
-                    scheduledTime: new Date(matchInfo.time),
-                    duration: totalGameTime,
-                    statusId: 1 // New matches are active
-                };
-                newMatches.push(match);
-            });
+        data.forEach((scheduledItem) => {
+            let order = ++ scheduledItem.orderindex;
+            const match: Match = {
+                eventId: eventId,
+                team1Id: scheduledItem.team1,
+                team2Id: scheduledItem.team2,
+                groupId: scheduledItem.groupId,
+                pitchId: allPitches[scheduledItem.pitchNumber].id, // Use pre-fetched pitches
+                orderIndex: order,
+                scheduledTime: new Date(scheduledItem.time),
+                duration: totalGameTime,
+                statusId: 1 // New matches are active
+            };
+            newMatches.push(match);
         });
 
         await prisma.$transaction(async (prisma) => {
@@ -170,63 +169,6 @@ export const createOrUpdateMatches = async (
         return { status: 'error', message: 'Failed to recreate matches. Old matches and pitches were restored.' };
     }
 };
-function scheduleMatches(availableTimes: TimeSlot[][], matchGroups: InsideMatch[][]): { match: InsideMatch; time: TimeSlot }[] {
-    console.log(availableTimes, 'availableTimes');
-
-    const scheduledMatches: { match: InsideMatch; time: TimeSlot }[] = [];
-    const teamSchedule: Record<number, TimeSlot> = {};
-    const timeSlotOccupancy: Record<string, Set<number>> = {};
-    const pitches = availableTimes.length;
-    const matchesPerPitch = availableTimes[0].length;
-
-
-    matchGroups.forEach((groupMatches) => {
-        let matchIndex = 0;
-        while (matchIndex < groupMatches.length) {
-            let matchScheduled = false;
-            for (let pitch = 0; pitch < pitches && matchIndex < groupMatches.length; pitch++) {
-                for (let slotIndex = 0; slotIndex < matchesPerPitch && matchIndex < groupMatches.length; slotIndex++) {
-                    const timeSlot = availableTimes[pitch][slotIndex];
-                    const match = groupMatches[matchIndex];
-
-                    const timeSlotKey = `${timeSlot}-${pitch + 1}`;
-                    const team1Occupied = timeSlotOccupancy[timeSlotKey]?.has(match.team1);
-                    const team2Occupied = timeSlotOccupancy[timeSlotKey]?.has(match.team2);
-
-                    // If both teams are free in this time slot, schedule the match
-                    if (!team1Occupied && !team2Occupied) {
-                        scheduledMatches.push({ match, time: timeSlot });
-                        teamSchedule[match.team1] = timeSlot;
-                        teamSchedule[match.team2] = timeSlot;
-
-                        // Mark the time slot as occupied by the two teams
-                        timeSlotOccupancy[timeSlotKey] = timeSlotOccupancy[timeSlotKey] || new Set();
-                        timeSlotOccupancy[timeSlotKey].add(match.team1).add(match.team2);
-
-                        // Mark the match as scheduled and move to the next one
-                        matchScheduled = true;
-                        matchIndex++;
-
-                        // No need to break, allow other matches to be scheduled at later times
-                    }
-                }
-                // Continue with other time slots for the same pitch
-            }
-        }
-    });
-
-    return scheduledMatches;
-}
-function groupScheduledMatchesByTime(scheduledMatches: { match: InsideMatch; time: TimeSlot }[]): { match: InsideMatch; time: TimeSlot }[][] {
-    const groupedMatches: Record<string, { match: InsideMatch; time: TimeSlot }[]> = {};
-
-    scheduledMatches.forEach((match) => {
-        if (!groupedMatches[match.time]) groupedMatches[match.time] = [];
-        groupedMatches[match.time].push(match);
-    });
-
-    return Object.values(groupedMatches);
-}
 const generateTimeSlotsByGroups = (startDate: Date, gameTime: number, groupSizes: number[]): string[][] => {
     let slots: string[] = [];
     let currentTime = new Date(startDate);
@@ -243,3 +185,60 @@ const generateTimeSlotsByGroups = (startDate: Date, gameTime: number, groupSizes
 
     return result;
 };
+// function scheduleMatches(availableTimes: TimeSlot[][], matchGroups: InsideMatch[][]): { match: InsideMatch; time: TimeSlot }[] {
+//     console.log(availableTimes, 'availableTimes');
+
+//     const scheduledMatches: { match: InsideMatch; time: TimeSlot }[] = [];
+//     const teamSchedule: Record<number, TimeSlot> = {};
+//     const timeSlotOccupancy: Record<string, Set<number>> = {};
+//     const pitches = availableTimes.length;
+//     const matchesPerPitch = availableTimes[0].length;
+
+//     matchGroups.forEach((groupMatches) => {
+//         let matchIndex = 0;
+//         while (matchIndex < groupMatches.length) {
+//             let matchScheduled = false;
+//             for (let pitch = 0; pitch < pitches && matchIndex < groupMatches.length; pitch++) {
+//                 for (let slotIndex = 0; slotIndex < matchesPerPitch && matchIndex < groupMatches.length; slotIndex++) {
+//                     const timeSlot = availableTimes[pitch][slotIndex];
+//                     const match = groupMatches[matchIndex];
+
+//                     const timeSlotKey = `${timeSlot}-${pitch + 1}`;
+//                     const team1Occupied = timeSlotOccupancy[timeSlotKey]?.has(match.team1);
+//                     const team2Occupied = timeSlotOccupancy[timeSlotKey]?.has(match.team2);
+
+//                     // If both teams are free in this time slot, schedule the match
+//                     if (!team1Occupied && !team2Occupied) {
+//                         scheduledMatches.push({ match, time: timeSlot });
+//                         teamSchedule[match.team1] = timeSlot;
+//                         teamSchedule[match.team2] = timeSlot;
+
+//                         // Mark the time slot as occupied by the two teams
+//                         timeSlotOccupancy[timeSlotKey] = timeSlotOccupancy[timeSlotKey] || new Set();
+//                         timeSlotOccupancy[timeSlotKey].add(match.team1).add(match.team2);
+
+//                         // Mark the match as scheduled and move to the next one
+//                         matchScheduled = true;
+//                         matchIndex++;
+
+//                         // No need to break, allow other matches to be scheduled at later times
+//                     }
+//                 }
+//                 // Continue with other time slots for the same pitch
+//             }
+//         }
+//     });
+
+//     return scheduledMatches;
+// }
+// function groupScheduledMatchesByTime(scheduledMatches: { match: InsideMatch; time: TimeSlot }[]): { match: InsideMatch; time: TimeSlot }[][] {
+//     const groupedMatches: Record<string, { match: InsideMatch; time: TimeSlot }[]> = {};
+
+//     scheduledMatches.forEach((match) => {
+//         if (!groupedMatches[match.time]) groupedMatches[match.time] = [];
+//         groupedMatches[match.time].push(match);
+//     });
+
+//     return Object.values(groupedMatches);
+// }
+
