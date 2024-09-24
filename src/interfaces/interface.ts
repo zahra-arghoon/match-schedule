@@ -28,15 +28,6 @@ export interface ITeam {
     pitchNumber?: number; 
     timeId?: number 
   }
-  export interface IMatch{
-    team2Id :number,
-    team1Id : number,
-    groupId : number,
-    eventId : number,
-    sequence : number,
-    scheduledTime : string
-
-  }
 
   export interface localRes {
     status: string;        

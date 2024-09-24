@@ -1,10 +1,5 @@
 import prisma from '../prisma';
-import { ITeam, IGroup } from '../interfaces/interface';
-import { getEventById } from './eventService';
-import { getPitchById } from './pitchService';
-import { getTimingById } from './timingService';
 import { getMatchByPitchId, getOneMatchByPitchId } from './matchService';
-import { convertToISOString } from '../utils/timeConverter';
 import {checkPitchAvailability } from '../utils/validateCustomPitches';
 export const getGapsByPitchId = async (pitchId: number, orderIndex: number) => {
     // try {

@@ -1,6 +1,4 @@
 import { PrismaClient, Match } from '@prisma/client';
-import { ITiming, IEvent } from '../interfaces/interface';
-import { error } from 'console';
 const prisma = new PrismaClient();
 
 // Create a new pitch

@@ -16,9 +16,6 @@ type EventData = {
     scheduledTime: Date;
 };
 
-const eventData: EventData[] = [
-    // Add your event data array here
-];
 
 export function extractMatches(data: EventData[]): { matchesByGroup: Match[][]; matchCount: number } {
     // Create a map to group matches by groupId

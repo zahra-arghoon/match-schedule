@@ -1,9 +1,4 @@
-import { generateMatches } from './generateMatchesService';
-import { calculatePitchesNeeded } from '../utils/getPitchNumber';
-import { createEvent } from './eventService';
-import { getTimingById } from './timingService';
 import { PrismaClient } from '@prisma/client';
-import { ITiming, IEvent, IMatch } from '../interfaces/interface';
 import { calculateMatchesPerPitch } from '../utils/validateCustomPitches';
 import { createMatch } from '../services/matchService';
 import { log } from 'console';

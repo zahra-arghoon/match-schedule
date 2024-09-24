@@ -4,7 +4,6 @@ import { addGapToMatchController, deleteGapController, moveGapController } from 
 
 import { validateGapAdd , validateDeleteGap,validateGapMove} from '../dto/validateGap';
 import { validateSchema } from '../middlewares/expressValidator';
-import { validateMatch } from '../dto/validateMatch';
 
 const router: Router = Router();
 
