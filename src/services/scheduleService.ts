@@ -7,8 +7,6 @@ import { ITiming, IEvent, IMatch } from '../interfaces/interface';
 import { calculateMatchesPerPitch } from '../utils/validateCustomPitches';
 import { createMatch } from '../services/matchService';
 import { log } from 'console';
-
-
 type InsideMatch = { team1: number; team2: number; groupId: number };
 type TimeSlot = string;
 interface MatchInput {

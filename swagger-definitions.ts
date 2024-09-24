@@ -1,4 +1,8 @@
 export const definitions = {
+    SuperAdminLogin: {
+        username: 'username',
+        password: 'password'
+    },
     EventTiming: {
         $gameTime: 60,
         $halfTime: 15,

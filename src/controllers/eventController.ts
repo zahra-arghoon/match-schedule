@@ -232,7 +232,7 @@ export const updateEventTimingController = async (req: Request, res: Response) =
         }
         const updatedEvent = await updateEventTiming(eventId, { gameTime, halfTime, gapTime });
         if (!updatedEvent) return res.status(404).json({ error: 'Event not found' });
-        res.status(200).json({ message: 'Event timing updated successfully or not' });
+        res.status(200).json({ message: 'Event timing updated successfully' });
     } catch (error) {
         console.error('Failed to update event:', error);
         res.status(500).json({ error: 'Failed to update event' });

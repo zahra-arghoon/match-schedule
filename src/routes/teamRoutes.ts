@@ -19,7 +19,7 @@ router.patch('/teams/change', validateTeam, validateSchema, changeTeam);
 
 router.patch('/teams/remove',validateTeamId,validateSchema, removeTeam);
 
-router.post('/teams', validateCreateTeam, validateSchema, createTeam);
+router.post('/teams',isSuperAdmin, validateCreateTeam, validateSchema, createTeam);
 
 
 router.get('/teams/all', getAllTeams);

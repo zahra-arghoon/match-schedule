@@ -3,6 +3,7 @@ import { getAllEventsController, getEventByIdController, customScheduleControlle
 import { validateCreateEvent, validateUpdateEvent, validateEventId } from '../dto/validateEvent';
 import {validateCreateTiming} from '../dto/validateTiming'
 import {validateSchema} from '../middlewares/expressValidator'
+import { isSuperAdmin } from '../middlewares/authHandler';
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.put('/events/:id', validateUpdateEvent, validateSchema, customScheduleCon
 router.put('/events/addTiming/:id', validateEventId,validateCreateTiming, validateSchema, updateEventTimingController);
 
 
-router.delete('/events', deleteAllEventsController);
+router.delete('/events',isSuperAdmin, deleteAllEventsController);
 
 
 
