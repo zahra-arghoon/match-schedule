@@ -110,12 +110,12 @@ export const moveMatch = async (matchId: number, newOrderIndex: number, newPitch
             const teamsInMatch = [match.team1Id, match.team2Id];
             const conflictingMatchesDestination = await checkTeamConflicts(matchId, teamsInMatch, newPitchIndex, scheduledTime, duration);
 
-            if (conflictingMatchesDestination.length > 0) {
-                return {
-                    success: false,
-                    message: `Conflict detected on destination pitch with other matches: ${conflictingMatchesDestination.map((m) => m.id).join(', ')}`
-                };
-            }
+            // if (conflictingMatchesDestination.length > 0) {
+            //     return {
+            //         success: false,
+            //         message: `Conflict detected on destination pitch with other matches: ${conflictingMatchesDestination.map((m) => m.id).join(', ')}`
+            //     };
+            // }
 
             // Check if the new pitch can accommodate the match (including gaps)
             const pitchAvailability = await checkPitchAvailability(newPitchIndex, duration, extendPitchTime);

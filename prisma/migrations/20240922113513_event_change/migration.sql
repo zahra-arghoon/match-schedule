@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE "Event" ALTER COLUMN "timeId" SET DEFAULT 1;

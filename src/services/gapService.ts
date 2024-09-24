@@ -182,45 +182,45 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
 
         /////////////////////////////////////////////////////////////////////////////////////////////////
         // Step 1: Retrieve affected matches that will be rescheduled due to the new gap
-        const affectedMatches = await prisma.match.findMany({
-            where: {
-                pitchId: pitchIndex,
-                orderIndex: {
-                    gt: orderIndex // Affects matches after the gap
-                },
-                statusId: 1
-            },
-            orderBy: { scheduledTime: 'asc' }
-        });
-        const affectedTeamIds = affectedMatches.flatMap((match) => [match.team1Id, match.team2Id]);
-        console.log(affectedMatches, '////////////////////////', affectedTeamIds);
+        // const affectedMatches = await prisma.match.findMany({
+        //     where: {
+        //         pitchId: pitchIndex,
+        //         orderIndex: {
+        //             gt: orderIndex // Affects matches after the gap
+        //         },
+        //         statusId: 1
+        //     },
+        //     orderBy: { scheduledTime: 'asc' }
+        // });
+        // const affectedTeamIds = affectedMatches.flatMap((match) => [match.team1Id, match.team2Id]);
+        // console.log(affectedMatches, '////////////////////////', affectedTeamIds);
 
         // Step 3: Check if any of the affected teams have conflicting matches at the new scheduled times
-        for (const match of affectedMatches) {
-            const teamsInMatch = [match.team1Id, match.team2Id];
+        // for (const match of affectedMatches) {
+        //     const teamsInMatch = [match.team1Id, match.team2Id];
 
             // Query for any other matches involving these teams that might conflict
-            const conflictingMatches = await prisma.match.findMany({
-                where: {
-                    OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
-                    scheduledTime: {
-                        // Check for overlap with the new rescheduled time of the match
-                        gte: match.scheduledTime,
-                        lt: new Date(match.scheduledTime.getTime() + duration * 60 * 1000) // Adjust for new duration
-                    },
-                    id: { not: match.id }, // Exclude the current match itself
-                    statusId: 1
-                }
-            });
+        //     const conflictingMatches = await prisma.match.findMany({
+        //         where: {
+        //             OR: [{ team1Id: { in: teamsInMatch } }, { team2Id: { in: teamsInMatch } }],
+        //             scheduledTime: {
+        //                 // Check for overlap with the new rescheduled time of the match
+        //                 gte: match.scheduledTime,
+        //                 lt: new Date(match.scheduledTime.getTime() + duration * 60 * 1000) // Adjust for new duration
+        //             },
+        //             id: { not: match.id }, // Exclude the current match itself
+        //             statusId: 1
+        //         }
+        //     });
 
-            if (conflictingMatches.length > 0) {
-                // Conflict detected
-                return {
-                    status: 'conflict',
-                    message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(', ')} with other scheduled matches`
-                };
-            }
-        }
+        //     if (conflictingMatches.length > 0) {
+        //         // Conflict detected
+        //         return {
+        //             status: 'conflict',
+        //             message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(', ')} with other scheduled matches`
+        //         };
+        //     }
+        // }
 
         ////////////////////////////////////////////////////////////////////////////////////////////////
         const pitchAvailability = await checkPitchAvailability(pitchIndex, duration, extendPitchTime);
