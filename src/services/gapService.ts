@@ -2,11 +2,6 @@ import prisma from '../prisma';
 import { getMatchByPitchId, getOneMatchByPitchId } from './matchService';
 import {checkPitchAvailability } from '../utils/validateCustomPitches';
 export const getGapsByPitchId = async (pitchId: number, orderIndex: number) => {
-    // try {
-
-    // } catch (error) {
-
-    // }
     return await prisma.match.findMany({
         where: {
             pitchId: pitchId,
@@ -65,15 +60,15 @@ export const deleteGap = async (orderIndex: number, pitchIndex: number) => {
                     eventId: match.eventId // Exclude the current match itself
                 }
             });
-            if (conflictingMatches.length > 0) {
-                // Conflict detected
-                return {
-                    success: false,
-                    message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(
-                        ', '
-                    )}. Conflicts with other matches: ${conflictingMatches.map((cMatch) => cMatch.id).join(', ')}`
-                };
-            }
+            // if (conflictingMatches.length > 0) {
+            //     // Conflict detected
+            //     return {
+            //         success: false,
+            //         message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(
+            //             ', '
+            //         )}. Conflicts with other matches: ${conflictingMatches.map((cMatch) => cMatch.id).join(', ')}`
+            //     };
+            // }
         }
 
         // Step 2: Delete the gap if no conflicts were found
@@ -173,16 +168,16 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
             newScheduledTime = new Date(nextMatch.scheduledTime.getTime() - duration * 60 * 1000);
         } else {
             // Schedule the gap at the start of the pitch if there are no matches
+            //complete here
             newScheduledTime = new Date();
         }
 
-        /////////////////////////////////////////////////////////////////////////////////////////////////
         // Step 1: Retrieve affected matches that will be rescheduled due to the new gap
         const affectedMatches = await prisma.match.findMany({
             where: {
                 pitchId: pitchIndex,
                 orderIndex: {
-                    gt: orderIndex // Affects matches after the gap
+                    gte: orderIndex // Affects matches after the gap
                 },
                 statusId: 1
             },
@@ -201,23 +196,37 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
                     scheduledTime: {
                         // Check for overlap with the new rescheduled time of the match
                         gte: match.scheduledTime,
-                        lt: new Date(match.scheduledTime.getTime() + duration * 60 * 1000) // Adjust for new duration
+                        lt: new Date(match.scheduledTime.getTime() + (match.duration + duration) * 60 * 1000) // Adjust for new duration
                     },
                     id: { not: match.id }, // Exclude the current match itself
-                    statusId: 1
+                    pitchId: { not: match.pitchId }, // Exclude the current match itself
+                    statusId: 1,
+                    eventId: match.eventId
                 }
             });
+                      
+           if (conflictingMatches.length > 0) {
+               // Prepare detailed conflict information
+               const conflictDetails = conflictingMatches
+                   .map((conflictingMatch) => {
+                       return `Match ID: ${conflictingMatch.id}, Scheduled Time: ${conflictingMatch.scheduledTime.toISOString()}, Duration: ${
+                           conflictingMatch.duration
+                       } mins, order Index: ${conflictingMatch.orderIndex},Pitch ID: ${conflictingMatch.pitchId}, Teams: ${conflictingMatch.team1Id} vs ${
+                           conflictingMatch.team2Id
+                       }`;
+                   })
+                   .join('\n');
 
-            if (conflictingMatches.length > 0) {
-                // Conflict detected
-                return {
-                    status: 'conflict',
-                    message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(', ')} with other scheduled matches`
-                };
-            }
+               // Return conflict status with detailed information
+               return {
+                   status: 'conflict',
+                   message: `Conflict detected for match ${match.id} involving teams ${teamsInMatch.join(
+                       ', '
+                   )} with the following conflicting matches:\n${conflictDetails}`
+               };
+           }
         }
 
-        ////////////////////////////////////////////////////////////////////////////////////////////////
         const pitchAvailability = await checkPitchAvailability(pitchIndex, duration, extendPitchTime);
 
         if (pitchAvailability.status === 'extend_required') {
@@ -228,22 +237,10 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
             console.log('Pitch duration extended successfully');
         }
 
-        // Create the new gap
-        await createGap({
-            pitchId: pitchIndex,
-            orderIndex,
-            duration,
-            scheduledTime: newScheduledTime
-        });
-
-        // Get updated lists of matches and gaps
-        const [updatedMatches, updatedGaps] = await Promise.all([
-            getMatchByPitchId(pitchIndex, orderIndex),
-            getGapsByPitchId(pitchIndex, orderIndex)
-        ]);
+      
 
         // Update matches and gaps orderIndex
-        await updateMatchesAndGaps(pitchIndex, orderIndex, duration);
+        await updateMatchesAndGaps(pitchIndex, orderIndex, duration,newScheduledTime);
 
         return { status: 'success', message: 'Gap added and matches rescheduled successfully' };
     } catch (error) {
@@ -251,6 +248,101 @@ export const addGap = async (orderIndex: number, pitchIndex: number, duration: n
         return { status: 'error', message: 'Failed to add gap' };
     }
 };
+const updateMatchesAndGaps = async (pitchIndex: number, orderIndex: number, duration: number,newScheduledTime:Date) => {
+    // Step 1: First, shift all matches and gaps with orderIndex >= orderIndex before adding the new gap
+
+    await prisma.match.updateMany({
+        where: {
+            pitchId: pitchIndex,
+            statusId: 1,
+            orderIndex: {
+                gte: orderIndex // Push all matches with orderIndex >= 2 forward
+            }
+        },
+        data: {
+            orderIndex: {
+                increment: 1 // Increment the orderIndex by 1
+            }
+        }
+    });
+
+    await prisma.gap.updateMany({
+        where: {
+            pitchId: pitchIndex,
+            orderIndex: {
+                gte: orderIndex // Push all gaps with orderIndex >= 2 forward
+            }
+        },
+        data: {
+            orderIndex: {
+                increment: 1 // Increment the orderIndex by 1
+            }
+        }
+    });
+
+    // Step 2: Now, insert the new gap at the original orderIndex (2)
+
+    const newGap = await prisma.gap.create({
+        data: {
+            pitchId: pitchIndex,
+            orderIndex, // This is the orderIndex where you are adding the new gap (e.g., 2)
+            duration,
+            scheduledTime: newScheduledTime // Calculated before
+        }
+    });
+
+    // Step 3: Adjust the scheduled time of all gaps and matches that have been pushed forward
+    const updatedMatches = await prisma.match.findMany({
+        where: {
+            pitchId: pitchIndex,
+            statusId: 1,
+            orderIndex: {
+                gt: orderIndex // Only update matches after the new gap
+            }
+        }
+    });
+
+    await Promise.all(
+        updatedMatches.map(async (match) => {
+            const newScheduledTime = new Date(
+                match.scheduledTime.getTime() + duration * 60 * 1000 // Shift by the duration of the gap
+            );
+
+            await prisma.match.update({
+                where: { id: match.id, statusId: 1 },
+                data: {
+                    scheduledTime: newScheduledTime
+                }
+            });
+        })
+    );
+
+    // Step 4: Similarly, update the scheduled time of the gaps that were pushed forward
+    const updatedGaps = await prisma.gap.findMany({
+        where: {
+            pitchId: pitchIndex,
+            orderIndex: {
+                gt: orderIndex // Only update gaps after the new gap
+            }
+        }
+    });
+
+    await Promise.all(
+        updatedGaps.map(async (gap) => {
+            const newScheduledTime = new Date(
+                gap.scheduledTime.getTime() + duration * 60 * 1000 // Shift by the duration of the gap
+            );
+
+            await prisma.gap.update({
+                where: { id: gap.id },
+                data: {
+                    scheduledTime: newScheduledTime // Update scheduledTime
+                }
+            });
+        })
+    );
+};
+
 const createGap = async ({
     pitchId,
     orderIndex,
@@ -270,74 +362,4 @@ const createGap = async ({
             scheduledTime // Add this field
         }
     });
-};
-const updateMatchesAndGaps = async (pitchIndex: number, orderIndex: number, duration: number) => {
-    // Update the orderIndex of matches
-    await prisma.match.updateMany({
-        where: {
-            pitchId: pitchIndex,
-            statusId: 1,
-            orderIndex: {
-                gte: orderIndex
-            }
-        },
-        data: {
-            orderIndex: {
-                increment: 1
-            }
-        }
-    });
-
-    // Shift the scheduled time of the matches
-    const updatedMatches = await prisma.match.findMany({
-        where: {
-            pitchId: pitchIndex,
-            statusId: 1,
-            orderIndex: {
-                gte: orderIndex + 1
-            }
-        }
-    });
-
-    await Promise.all(
-        updatedMatches.map(async (match) => {
-            const newScheduledTime = new Date(
-                match.scheduledTime.getTime() + duration * 60 * 1000 // Convert minutes to milliseconds
-            );
-
-            await prisma.match.update({
-                where: { id: match.id, statusId: 1 },
-                data: {
-                    scheduledTime: newScheduledTime
-                }
-            });
-        })
-    );
-
-    // Update the orderIndex and scheduledTime of gaps after the new gap
-    const updatedGaps = await prisma.gap.findMany({
-        where: {
-            pitchId: pitchIndex,
-            orderIndex: {
-                gt: orderIndex
-            }
-        }
-    });
-
-    await Promise.all(
-        updatedGaps.map(async (gap) => {
-            const newOrderIndex = gap.orderIndex + 1;
-            const newScheduledTime = new Date(
-                gap.scheduledTime.getTime() + duration * 60 * 1000 // Convert minutes to milliseconds
-            );
-
-            await prisma.gap.update({
-                where: { id: gap.id },
-                data: {
-                    orderIndex: newOrderIndex,
-                    scheduledTime: newScheduledTime // Update scheduledTime
-                }
-            });
-        })
-    );
 };
