@@ -21,7 +21,7 @@ export const validateMatch = [
         .custom(async (value) => {
             const match = await getMatchById(Number(value));
 
-            if (!match) {
+            if (match.status === "error") {
                 throw new Error('match not found'); // If the match doesn't exist, throw an error
             }
             return true;
