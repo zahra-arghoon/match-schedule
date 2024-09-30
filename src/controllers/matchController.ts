@@ -1,5 +1,8 @@
 import e, { Request, Response } from 'express';
-import { getAllMatchs, moveMatch, findConflictingMatches } from '../services/matchService';
+import { getAllMatchs,
+  //  moveMatch, 
+   findConflictingMatches } from '../services/matchService';
+import { moveMatch } from '../services/moveMatchService';
 import {convertToISOString} from '../utils/timeConverter'
 import { addGap,deleteGap,getGapByPitchId} from '../services/gapService';
 import { getPitchById, getGroupedMatch } from '../services/pitchService';
@@ -47,25 +50,42 @@ export const moveMatchController = async (req: Request, res: Response) => {
     try {
         const { matchId, newOrderIndex, pitchIndex, extendPitchTime } = req.body;
 
-        if (matchId === undefined || newOrderIndex === undefined || pitchIndex === undefined) {
-            return res.status(400).json({ status: 'error', message: 'matchId, newOrderIndex, and pitchIndex are required.' });
-        }
 
+    
+        // Call the moveMatch function
         const result = await moveMatch(matchId, newOrderIndex, pitchIndex, extendPitchTime);
 
         if (result.success) {
-          return res.status(200).json({ status: 'success', message: result.message });
+            return res.status(200).json({
+                status: 'success',
+                message: result.message
+            });
         } else {
-          return res.status(400).json({ status: 'error', message: result.message });
+           return res.status(400).json({
+               status: 'failure',
+               message: result.message,
+               conflicts: result.conflicts
+           });
+            // If conflicts exist, include them in the response
+            // if (result.conflicts) {
+            //     return res.status(400).json({
+            //         status: 'error',
+            //         message: result.message,
+            //         conflicts: result.conflicts
+            //     });
+            // } else {
+            //     return res.status(400).json({
+            //         status: 'error',
+            //         message: result.message
+            //     });
+            // }
         }
-        // await moveMatch(matchId, newOrderIndex, pitchIndex);
-
-        return res.status(200).json({ status: 'success', message: result.message });
     } catch (error) {
         console.error('Error in moveMatchController:', error);
         return res.status(500).json({ status: 'error', message: 'Internal server error.' });
     }
 };
+
 export const getPitchesWithMatchesAndGaps = async (req: Request, res: Response) => {
   /*
          #swagger.tags = ['Pitch']
