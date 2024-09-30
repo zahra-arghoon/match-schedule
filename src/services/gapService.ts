@@ -342,24 +342,3 @@ const updateMatchesAndGaps = async (pitchIndex: number, orderIndex: number, dura
         })
     );
 };
-
-const createGap = async ({
-    pitchId,
-    orderIndex,
-    duration,
-    scheduledTime
-}: {
-    pitchId: number;
-    orderIndex: number;
-    duration: number;
-    scheduledTime: Date;
-}) => {
-    return prisma.gap.create({
-        data: {
-            pitchId,
-            orderIndex,
-            duration,
-            scheduledTime // Add this field
-        }
-    });
-};

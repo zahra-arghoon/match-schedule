@@ -54,6 +54,7 @@ export const moveMatch = async (matchId: number, newOrderIndex: number, newPitch
             simulatedSchedules = matches;
             teamsInMatch.push(...originalPitchTeamsInMatch);
         }
+        
         // Perform conflict checking using the simulated schedules
         const conflictCheckResult = await checkConflictsInSimulatedSchedules(simulatedSchedules, matchId, teamsInMatch);
 
@@ -229,11 +230,19 @@ const simulateOrderIndexAdjustment = (
         simulatedMatches.push(matchToMove);
     } else if (moveType === 'differentPitch') {
         // Increment orderIndex of matches at or after the new position
+        // this part looks diffrent because it is supposed to work 
+        //for both adjusting originalpitch index senario and not doing it
+        let orders :number[] = [];
         simulatedMatches.forEach((match) => {
-            if (match.orderIndex >= newOrderIndex) {
-                match.orderIndex += 1;
-            }
+            orders.push(match.orderIndex);  
         });
+        if (orders.includes(newOrderIndex)) {
+            simulatedMatches.forEach((match) => {
+                if (match.orderIndex >= newOrderIndex) {
+                    match.orderIndex += 1;
+                }
+            });
+        } 
     }
 
     // Sort matches by orderIndex
@@ -329,18 +338,12 @@ const checkConflictsInSimulatedSchedules = async (
             }
         });
         const conflicts = [];
-        console.log(teamMatches, 'teams');
-
         for (const match of teamMatches) {
             const otherStartTime = new Date(match.scheduledTime);
             const otherEndTime = new Date(otherStartTime.getTime() + match.duration * 60000);
 
             // Check for overlaps with all simulated schedules involving the same teams
-            console.log('**************');
-
             for (const simulatedMatch of simulatedSchedules) {
-                console.log(match.id, '=====,,,,,,,,,=======');
-                console.log(simulatedMatch.id, '============');
                 if (
                     simulatedMatch.id !== match.id &&
                     simulatedMatch.pitchId !== match.pitchId &&
@@ -350,7 +353,6 @@ const checkConflictsInSimulatedSchedules = async (
                         simulatedMatch.team2Id === match.team2Id) &&
                     hasOverlap(simulatedMatch.scheduledTime, simulatedMatch.endTime, otherStartTime, otherEndTime)
                 ) {
-                    console.log(match.id, '////////////////');
 
                     conflicts.push({
                         id: match.id,
@@ -360,7 +362,6 @@ const checkConflictsInSimulatedSchedules = async (
                         duration: match.duration,
                         pitchId: match.pitchId
                     });
-                    console.log('////////////////');
                 }
             }
         }
@@ -443,6 +444,40 @@ const adjustOrderIndexesNewPitch = async (pitchId: number, newOrderIndex: number
         }
     });
 };
+// const adjustOrderIndexesNewPitch = async (pitchId: number, newOrderIndex: number) => {
+//     // Get the current order indexes for the matches
+//     const currentMatches = await prisma.match.findMany({
+//         where: {
+//             pitchId,
+//             statusId: 1
+//         },
+//         select: {
+//             orderIndex: true
+//         }
+//     });
+
+//     // Extract order indexes into an array
+//     const orders = currentMatches.map((match) => match.orderIndex);
+
+//     // Check if the newOrderIndex already exists
+//     if (orders.includes(newOrderIndex)) {
+//         // Increment the orderIndex of matches at or after the new position
+//         await prisma.match.updateMany({
+//             where: {
+//                 pitchId,
+//                 statusId: 1,
+//                 orderIndex: {
+//                     gte: newOrderIndex
+//                 }
+//             },
+//             data: {
+//                 orderIndex: {
+//                     increment: 1
+//                 }
+//             }
+//         });
+//     }
+// };
 const adjustOrderIndexesOriginalPitch = async (pitchId: number, oldOrderIndex: number) => {
     // decreament the orderIndex of matches at or after moved match position
     await prisma.match.updateMany({
