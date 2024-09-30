@@ -1,20 +1,15 @@
 import { Request, Response } from 'express';
 import { createEvent, getAllEvents, getEventById, updateEvent, updateEventTiming, deleteAllEvents } from '../services/eventService';
-import dayjs from 'dayjs'; // Optional: Use a library like dayjs for handling date formats
 import { getAllGroupsFromDb } from '../services/groupService';
 import { getAssignedTeamCount } from '../services/teamService';
 import { getMatchesByEventId } from '../services/matchService';
-import { ITeam, IGroup } from '../interfaces/interface';
 import { generateMatches } from '../services/generateMatchesService';
 import { extractMatches } from '../services/extractData';
 import { calculatePitchesNeeded } from '../utils/getPitchNumber';
 import { createTiming, getAllTimings, getTimingById, updateTiming } from '../services/timingService';
 import { convertToISOString } from '../utils/timeConverter';
 import { validateCustomPitches, calculateMatchesPerPitch } from '../utils/validateCustomPitches';
-
 import { newschedule } from '../services/scheduleService';
-import { match } from 'assert';
-import { log } from 'console';
 export const getAllEventsController = async (req: Request, res: Response) => {
     /*
       #swagger.tags = ['Event']

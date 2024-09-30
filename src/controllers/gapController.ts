@@ -1,11 +1,6 @@
 import { Request, Response } from 'express';
-import { getAllMatchs, moveMatch } from '../services/matchService';
-import { convertToISOString } from '../utils/timeConverter';
 import { addGap, deleteGap, getGapByPitchId } from '../services/gapService';
-import { getPitchById, getGroupedMatch } from '../services/pitchService';
 import { PrismaClient } from '@prisma/client';
-import { Match, Gap, Event } from '../interfaces/interface';
-import { log } from 'util';
 const prisma = new PrismaClient();
 export const addGapToMatchController = async (req: Request, res: Response) => {
     /*

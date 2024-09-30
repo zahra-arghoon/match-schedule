@@ -1,13 +1,10 @@
 import e, { Request, Response } from 'express';
 import { getAllMatchs,
-  //  moveMatch, 
    findConflictingMatches } from '../services/matchService';
 import { moveMatch } from '../services/moveMatchService';
-import {convertToISOString} from '../utils/timeConverter'
-import { addGap,deleteGap,getGapByPitchId} from '../services/gapService';
 import { getPitchById, getGroupedMatch } from '../services/pitchService';
 import { PrismaClient } from '@prisma/client';
-import {Match,Gap,Event} from '../interfaces/interface'
+import {Event} from '../interfaces/interface'
 const prisma = new PrismaClient();
 
 export const deleteAllMatchesController = async (req: Request, res: Response) => {

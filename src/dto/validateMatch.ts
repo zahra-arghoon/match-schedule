@@ -1,9 +1,6 @@
 import { check, validationResult } from 'express-validator';
 import { getMatchById } from '../services/matchService';
 import { getPitchById } from '../services/pitchService';
-import dayjs from 'dayjs';
-
-
 
 export const validateMatch = [
     check('newOrderIndex')
@@ -11,6 +8,10 @@ export const validateMatch = [
         .withMessage('newOrderIndex is required')
         .isInt({ min: 1 })
         .withMessage('newOrderIndex must be an integer greater than 0'),
+    check('extendPitchTime')
+        .optional()
+        .isBoolean()
+        .withMessage('extendPitchTime must be a boolean value'),
     check('matchId')
         .notEmpty()
         .withMessage('MatchId is required')

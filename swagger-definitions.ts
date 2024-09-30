@@ -35,7 +35,8 @@ export const definitions = {
     MatchMove: {
         matchId: 233,
         newOrderIndex: 2,
-        pitchIndex: 534
+        pitchIndex: 534,
+        extendPitchTime: false
     },
     Group: {
         name: 'my group'
